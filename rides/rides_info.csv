@@ -1,5 +1,7 @@
-id,towns
-1,Zürich HB-Uster-Pfäffikon ZH-Hinwil
-2,Zürich HB-Dietikon
-3,Zürich HB-Affoltern am Albis-Horgen-Meilen
-4,Zürich HB-Dielsdorf-Bülach-Andelfingen-Winterthur
+id,towns,status
+1,Zürich-Uster-Pfäffikon-Hinwil,1
+2,Zürich-Dietikon,1
+3,Zürich-Affoltern-Horgen-Meilen,1
+4,Zürich-Dielsdorf-Bülach-Andelfingen-Winterthur,1
+5,Walchwil-Unterägeri-Oberägeri-Menzingen-Neuheim-Baar-Zug-Steinhausen-Cham-Rotkreuz,1
+6,Baden-Brugg-Zurzach-Laufenburg-Rheinfelden,1
