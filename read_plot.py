@@ -1,4 +1,5 @@
 import base64
+import time
 import warnings
 from geopy.distance import geodesic
 
@@ -90,7 +91,7 @@ def get_station_coordinates(city):
     query = f"{city} Bahnhof, Switzerland"
     url = "https://nominatim.openstreetmap.org/search"
     params = {"q": query, "format": "json"}
-    headers = {"User-Agent": "MyTrainApp/1.0 (your.email@example.com)"}
+    headers = {"User-Agent": "PersonalApp/1.0 (usernamesdontmatter@proton.me)"}
     response = requests.get(url, headers=headers, params=params)
 
     if response.status_code != 200:
@@ -149,7 +150,7 @@ def moving_average(values, window_size=5):
     return np.convolve(values, np.ones(window_size) / window_size, mode="valid")
 
 
-def compute_stats_from_gps(coords, elevations, timestamps):
+def generate_stats_from_gps(coords, elevations, timestamps):
     raw_speeds = []
     raw_gradients = []
     import numpy as np
@@ -195,7 +196,7 @@ def compute_stats_from_gps(coords, elevations, timestamps):
     smooth_speeds = moving_average(raw_speeds, window_size)
     smooth_gradients = moving_average(raw_gradients, window_size)
 
-    return {
+    stats = {
         "Max Elevation": round(max(elevations), 1) if elevations else None,
         "Min Elevation": round(min(elevations), 1) if elevations else None,
         "Max Gradient (%)": (
@@ -217,6 +218,56 @@ def compute_stats_from_gps(coords, elevations, timestamps):
             round(np.mean(smooth_speeds), 1) if len(smooth_speeds) > 0 else None
         ),
     }
+    
+    # Use emojis or Font Awesome/Material if embedding full HTML later
+    icons = {
+        "Max Elevation": '<i class="fas fa-mountain"></i>',
+        "Min Elevation": '<i class="fas fa-tree"></i>',
+        "Max Gradient (%)": '<i class="fas fa-arrow-up"></i>',
+        "Min Gradient (%)": '<i class="fas fa-arrow-down"></i>',
+        "Avg Gradient (%)": '<i class="fas fa-chart-line"></i>',
+        "Max Speed (km/h)": '<i class="fas fa-tachometer-alt"></i>',
+        "Min Speed (km/h)": '<i class="fas fa-walking"></i>',
+        "Avg Speed (km/h)": '<i class="fas fa-bicycle"></i>',
+    }
+
+    elevation_rows = "".join(
+        f"<tr><td>{icons.get(k, '')} {k}</td><td style='text-align:right'>{v}</td></tr>"
+        for k, v in stats.items() if "Elevation" in k
+    )
+
+    gradient_rows = "".join(
+        f"<tr><td>{icons.get(k, '')} {k}</td><td style='text-align:right'>{v}</td></tr>"
+        for k, v in stats.items() if "Gradient" in k
+    )
+
+    speed_rows = "".join(
+        f"<tr><td>{icons.get(k, '')} {k}</td><td style='text-align:right'>{v}</td></tr>"
+        for k, v in stats.items() if "Speed" in k
+    )
+
+    html = f"""
+    <div style="font-family:Arial, sans-serif; font-size:13px; max-width:700px;">
+      <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+      <table style="border-collapse:collapse; width:100%; margin-top:4px;">
+        <thead>
+          <tr><th colspan="2" style="text-align:left; padding:6px; border-bottom:1px solid #ccc; background:#f8f8f8;">🏔️ Elevation</th></tr>
+        </thead>
+        <tbody>{elevation_rows}</tbody>
+        
+        <thead>
+          <tr><th colspan="2" style="text-align:left; padding:6px; border-bottom:1px solid #ccc; background:#f8f8f8;">📉 Gradient</th></tr>
+        </thead>
+        <tbody>{gradient_rows}</tbody>
+
+        <thead>
+          <tr><th colspan="2" style="text-align:left; padding:6px; border-bottom:1px solid #ccc; background:#f8f8f8;">🚴 Speed</th></tr>
+        </thead>
+        <tbody>{speed_rows}</tbody>
+      </table>
+    </div>
+    """
+    return html
 
 
 # All towns
@@ -231,7 +282,7 @@ shapefile = gpd.read_file(
 shapefile.to_crs(crs=4326, inplace=True)
 
 # latlon = shapefile.query("NAME == 'Schweiz'").geometry.apply(lambda x: listPoints(x)).values.tolist()
-completed_cantons = ["Zürich", "Zug", "Aargau"]
+completed_cantons = ["Zürich", "Zug", "Aargau", "Graubünden"]
 cantons = folium.FeatureGroup(name="Cantons")
 completed = folium.FeatureGroup(name="Completed")
 districts = folium.FeatureGroup(name="Districts")
@@ -285,7 +336,6 @@ kanton_incomplete_fill = "#dff7d7"
 kanton_not_started_border = "#003399"
 kanton_not_started_fill = "#e6e6e6"
 
-
 for row in range(len(shapefile)):
     kanton_obj = shapefile.iloc[row]
     kanton_name = kanton_obj.NAME.strip()
@@ -304,7 +354,7 @@ for row in range(len(shapefile)):
 
         for i in range(len(dist_obj.geometry)):
             dist_name = dist_obj.iloc[i].NAME
-            if dist_name not in towns.town.values:
+            if dist_name not in towns.bezirk.values:
                 print(f"Bezirke not completed: {dist_name}")
                 color = kanton_incomplete_border
                 fillColor = kanton_incomplete_fill
@@ -322,19 +372,19 @@ for row in range(len(shapefile)):
         popup = kanton_name
         plot_polyline(kanton_obj.geometry, color, layer, fillColor, popup)
 
-for i in range(len(rides_info)):
-    ride = rides_info.iloc[i]
-
-    ride_name = f"./rides/ride{ride.id}.xml"
+for ride_id in rides_info.id.unique():
+    ride = rides_info.query(f"id == {ride_id}")
+    print (ride_id)
+    ride_name = f"./rides/ride{ride_id}.xml"
     ride_coords, ride_ele, ride_timestamps = read_gpx(ride_name)
-    ride_towns = ride.towns
+    ride_towns = ride.towns.values
 
     # Generate elevation plot
-    elev_plot_path = generate_elevation_plot(ride_coords, ride_ele, ride.id)
-    stats = compute_stats_from_gps(ride_coords, ride_ele, ride_timestamps)
-    stats_html = "".join(
-        [f"<b>{k}</b>: {v}" for k, v in stats.items() if v is not None]
-    )
+    elev_plot_path = generate_elevation_plot(ride_coords, ride_ele, ride_id)
+    stats_html = generate_stats_from_gps(ride_coords, ride_ele, ride_timestamps)
+    # stats_html = "".join(
+    #     [f"<b>{k}</b>: {v}" for k, v in stats.items() if v is not None]
+    # )
 
     # Create popup with image or iframe
     encoded = base64.b64encode(open(elev_plot_path, "rb").read()).decode()
@@ -348,21 +398,19 @@ for i in range(len(rides_info)):
     full_html = f"""
     <div style="font-family: Arial; font-size:12px;">
     <img src="data:image/png;base64,{encoded}" width="700" height="270" style="margin:0; padding:0; display:inline;" />
-    <table style="margin-top:4px; border-spacing: 4px;">
-        {''.join(f"<tr><td><b>{k}</b></td><td>{v}</td></tr>" for k, v in stats.items() if v is not None)}
-    </table>
+    {stats_html}
     </div>
     """
 
     iframe = IFrame(full_html, width=720, height=400)
     popup = folium.Popup(iframe, max_width=750)
 
-    for c in ride_towns.split("-"):
+    for c in ride_towns:
         town = towns.query(f"town in '{c}'")
         try:
             try:
                 st_coord = get_station_coordinates(c)
-
+                time.sleep(1.2)
                 if isinstance(st_coord, type(None)):
                     raise Exception
             except Exception as e:
