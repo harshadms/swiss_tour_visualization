@@ -31,20 +31,33 @@ def inject_ui(raw_html: str, rides_data: list) -> str:
     if map_var:
         map_fix = f"""
 <script>
-document.addEventListener('DOMContentLoaded', function() {{
-  setTimeout(function() {{
-    if (typeof {map_var} !== 'undefined') {{
-      {map_var}.invalidateSize();
-      // Expose map globally so swToggleTheme/swToggleLayer can find it
-      window._swMap = {map_var};
+(function waitForMap() {{
+  if (typeof {map_var} === 'undefined') {{ setTimeout(waitForMap, 50); return; }}
+  window._swMap = {map_var};
+  {map_var}.invalidateSize();
+  // Wire polyline clicks: tooltip is "ride-id-N"
+  {map_var}.eachLayer(function(layer) {{
+    if (layer.getTooltip) {{
+      var tt = layer.getTooltip();
+      if (tt) {{
+        var content = tt.getContent ? tt.getContent() : tt._content;
+        var m = content && content.match(/^ride-id-(\\d+)$/);
+        if (m) {{
+          var rid = parseInt(m[1]);
+          layer.setStyle && layer.setStyle({{color: '#ff6b35', weight: 4, opacity: 0.85}});
+          layer.on('click', function() {{ swSelectRide(rid); }});
+        }}
+      }}
     }}
-  }}, 300);
-}});
+  }});
+}})();
 </script>"""
 
     raw_html = raw_html.replace("</head>", CSS_TEMPLATE + "\n</head>", 1)
+    # Inject before </html> — Folium puts its JS *after* </body>, so we must
+    # go after all of Folium's code to ensure the map variable exists.
     injection = f"\n{rides_script}\n{HTML_TEMPLATE}\n{JS_TEMPLATE}\n{map_fix}\n"
-    raw_html = raw_html.replace("</body>", injection + "</body>", 1)
+    raw_html = raw_html.replace("</html>", injection + "</html>", 1)
     return raw_html
 
 
@@ -519,18 +532,13 @@ for ride_id in rides_info.id.unique():
             print(c)
             pass
 
-    # Add polyline — clicking calls swSelectRide() in the UI
-    click_popup = folium.Popup(
-        f'<script>swSelectRide({int(ride_id)})</script>',
-        max_width=1
-    )
+    # Add polyline — ride_id stored in tooltip for JS click wiring
     folium.PolyLine(
         [(lat, lon) for lat, lon in ride_coords],
         color="#ff6b35",
         weight=4,
         opacity=0.85,
-        tooltip=f"Ride {ride_id} · {canton_label}",
-        popup=click_popup,
+        tooltip=f"ride-id-{int(ride_id)}",
     ).add_to(rides)
 
 
