@@ -533,7 +533,7 @@ map1.add_child(stops)
 
 
 map1.add_child(folium.LayerControl())
-raw_html = map1._repr_html_()
+raw_html = map1.get_root().render()
 final_html = inject_ui(raw_html, ride_data_list)
 with open("index.html", "w", encoding="utf-8") as f:
     f.write(final_html)
