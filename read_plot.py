@@ -270,6 +270,56 @@ def generate_stats_from_gps(coords, elevations, timestamps):
     return html
 
 
+def _compute_stats(coords, elevations, timestamps):
+    """Return a plain dict of ride stats (no HTML). Used for JS data injection."""
+    import numpy as np
+    raw_speeds = []
+    raw_gradients = []
+    window_size = 5
+    min_dist = 2
+    min_time = 1
+    ele_copy = list(elevations)
+
+    for i in range(1, len(coords)):
+        p1, p2 = coords[i - 1], coords[i]
+        lat1, lon1 = p1
+        lat2, lon2 = p2
+        ele1 = ele_copy[i - 1] if i - 1 < len(ele_copy) else None
+        ele2 = ele_copy[i] if i < len(ele_copy) else None
+        t1 = timestamps[i - 1]
+        t2 = timestamps[i]
+        if None in (lat1, lon1, ele1, t1, lat2, lon2, ele2, t2):
+            continue
+        dist_m = geodesic((lat1, lon1), (lat2, lon2)).meters
+        time_s = (t2 - t1).total_seconds()
+        if dist_m < min_dist or time_s < min_time:
+            continue
+        speed_kmh = (dist_m / time_s) * 3.6
+        gradient = (ele2 - ele1) / dist_m * 100
+        if abs(gradient) < 100:
+            raw_gradients.append(gradient)
+        raw_speeds.append(speed_kmh)
+
+    smooth_speeds = moving_average(raw_speeds, window_size)
+    smooth_gradients = moving_average(raw_gradients, window_size)
+
+    total_km = sum(
+        geodesic(coords[i - 1], coords[i]).km
+        for i in range(1, len(coords))
+    )
+
+    valid_ele = [e for e in elevations if e is not None]
+    return {
+        "distance_km": round(total_km, 1),
+        "max_elevation_m": round(max(valid_ele), 0) if valid_ele else None,
+        "min_elevation_m": round(min(valid_ele), 0) if valid_ele else None,
+        "avg_speed_kmh": round(float(np.mean(smooth_speeds)), 1) if len(smooth_speeds) else None,
+        "max_speed_kmh": round(float(max(smooth_speeds)), 1) if len(smooth_speeds) else None,
+        "avg_gradient_pct": round(float(np.mean(smooth_gradients)), 1) if len(smooth_gradients) else None,
+        "max_gradient_pct": round(float(max(smooth_gradients)), 1) if len(smooth_gradients) else None,
+    }
+
+
 # All towns
 towns = pd.read_csv("rides/towns.csv", sep=",")
 
@@ -372,9 +422,11 @@ for row in range(len(shapefile)):
         popup = kanton_name
         plot_polyline(kanton_obj.geometry, color, layer, fillColor, popup)
 
+ride_data_list = []
+
 for ride_id in rides_info.id.unique():
     ride = rides_info.query(f"id == {ride_id}")
-    print (ride_id)
+    print(ride_id)
     ride_name = f"./rides/ride{ride_id}.xml"
     ride_coords, ride_ele, ride_timestamps = read_gpx(ride_name)
     ride_towns = ride.towns.values
@@ -382,6 +434,34 @@ for ride_id in rides_info.id.unique():
     # Generate elevation plot
     elev_plot_path = generate_elevation_plot(ride_coords, ride_ele, ride_id)
     stats_html = generate_stats_from_gps(ride_coords, ride_ele, ride_timestamps)
+
+    # Build structured data for UI injection
+    ride_towns_list = list(ride.towns.values)
+    ride_canton = rides_info.query(f"id == {ride_id}").bezirk.values[0]
+    canton_label = next(
+        (c for c in completed_cantons if c in ride_canton or ride_canton in c),
+        ride_canton
+    )
+
+    ele_step = max(1, len(ride_ele) // 200)
+    ele_sampled = ride_ele[::ele_step]
+    coords_sampled = ride_coords[::ele_step]
+    distances_sampled = [0.0]
+    for i in range(1, len(coords_sampled)):
+        d = geodesic(coords_sampled[i - 1], coords_sampled[i]).km
+        distances_sampled.append(distances_sampled[-1] + d)
+
+    ride_stats = _compute_stats(ride_coords, ride_ele, ride_timestamps)
+
+    ride_data_list.append({
+        "id": int(ride_id),
+        "label": f"Ride {ride_id}",
+        "canton": canton_label,
+        "towns": ride_towns_list,
+        "distances_km": [round(d, 2) for d in distances_sampled],
+        "elevations_m": [round(e, 1) if e is not None else 0 for e in ele_sampled],
+        "stats": ride_stats,
+    })
     # stats_html = "".join(
     #     [f"<b>{k}</b>: {v}" for k, v in stats.items() if v is not None]
     # )
