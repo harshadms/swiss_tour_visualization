@@ -28,7 +28,13 @@ CSS_TEMPLATE = """
 
 /* ── Reset map to fill viewport ────────────────────────── */
 html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; }
-.folium-map { position:fixed !important; inset:0 !important; z-index:1; }
+.folium-map {
+  position:fixed !important;
+  top:0 !important; left:0 !important;
+  right:0 !important; bottom:48px !important;
+  width:100% !important; height:auto !important;
+  z-index:1;
+}
 
 /* ── Title badge (top-left) ─────────────────────────────── */
 #sw-title {
@@ -142,17 +148,17 @@ html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; }
   cursor:pointer; flex-shrink:0;
 }
 #sw-handle .ride-name {
-  font-size:11px; font-weight:700; letter-spacing:.5px; color:var(--accent);
+  font-size:15px; font-weight:700; letter-spacing:.5px; color:var(--accent);
 }
-#sw-handle .ride-subtitle { font-size:9px; color:var(--text2); margin-top:2px; }
+#sw-handle .ride-subtitle { font-size:12px; color:var(--text2); margin-top:2px; }
 #sw-handle .handle-right {
   display:flex; align-items:center; gap:10px;
 }
 #sw-handle .distance-pill {
-  font-size:9px; color:var(--text2);
+  font-size:13px; color:var(--text2);
   background:var(--chip-bg);
   border:1px solid var(--border);
-  border-radius:10px; padding:2px 8px;
+  border-radius:10px; padding:3px 10px;
 }
 #sw-handle .chevron { color:var(--accent); font-size:13px; }
 
@@ -180,10 +186,10 @@ html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; }
   border-right:1px solid var(--border);
 }
 .sw-stat:last-child { border-right:none; }
-.sw-stat .s-icon { font-size:11px; }
-.sw-stat .s-val  { font-size:12px; font-weight:700; color:var(--text1); margin-top:1px; }
-.sw-stat .s-unit { font-size:8px; color:var(--text2); }
-.sw-stat .s-lbl  { font-size:7px; color:var(--text2); text-transform:uppercase; letter-spacing:.3px; margin-top:1px; }
+.sw-stat .s-icon { font-size:13px; }
+.sw-stat .s-val  { font-size:15px; font-weight:700; color:var(--text1); margin-top:1px; }
+.sw-stat .s-unit { font-size:10px; color:var(--text2); }
+.sw-stat .s-lbl  { font-size:9px; color:var(--text2); text-transform:uppercase; letter-spacing:.3px; margin-top:1px; }
 </style>
 """
 
@@ -251,6 +257,7 @@ JS_TEMPLATE = """
   var _map       = null;
 
   function swFindMap() {
+    if (window._swMap) return window._swMap;
     for (var k in window) {
       try {
         if (window[k] && window[k]._leaflet_id !== undefined && typeof window[k].addLayer === 'function') {

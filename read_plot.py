@@ -17,11 +17,33 @@ from ui_template import CSS_TEMPLATE, HTML_TEMPLATE, JS_TEMPLATE
 
 def inject_ui(raw_html: str, rides_data: list) -> str:
     """Post-process Folium's HTML output to inject the custom UI shell."""
+    import re
     rides_json = json.dumps(rides_data, ensure_ascii=False)
     rides_script = f"<script>const RIDES = {rides_json};</script>"
 
+    # Extract the Leaflet map variable name so we can call invalidateSize()
+    # Folium generates something like: var map_abc123 = L.map(...)
+    map_var_match = re.search(r'var (map_[a-f0-9]+) = L\.map\(', raw_html)
+    map_var = map_var_match.group(1) if map_var_match else None
+
+    # Build a small init snippet that fixes map size after the drawer is rendered
+    map_fix = ""
+    if map_var:
+        map_fix = f"""
+<script>
+document.addEventListener('DOMContentLoaded', function() {{
+  setTimeout(function() {{
+    if (typeof {map_var} !== 'undefined') {{
+      {map_var}.invalidateSize();
+      // Expose map globally so swToggleTheme/swToggleLayer can find it
+      window._swMap = {map_var};
+    }}
+  }}, 300);
+}});
+</script>"""
+
     raw_html = raw_html.replace("</head>", CSS_TEMPLATE + "\n</head>", 1)
-    injection = f"\n{rides_script}\n{HTML_TEMPLATE}\n{JS_TEMPLATE}\n"
+    injection = f"\n{rides_script}\n{HTML_TEMPLATE}\n{JS_TEMPLATE}\n{map_fix}\n"
     raw_html = raw_html.replace("</body>", injection + "</body>", 1)
     return raw_html
 
