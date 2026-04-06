@@ -1,4 +1,4 @@
-import base64
+import json
 import time
 import warnings
 from geopy.distance import geodesic
@@ -12,7 +12,18 @@ import gpxpy
 import traceback
 import requests
 
-from folium import IFrame
+from ui_template import CSS_TEMPLATE, HTML_TEMPLATE, JS_TEMPLATE
+
+
+def inject_ui(raw_html: str, rides_data: list) -> str:
+    """Post-process Folium's HTML output to inject the custom UI shell."""
+    rides_json = json.dumps(rides_data, ensure_ascii=False)
+    rides_script = f"<script>const RIDES = {rides_json};</script>"
+
+    raw_html = raw_html.replace("</head>", CSS_TEMPLATE + "\n</head>", 1)
+    injection = f"\n{rides_script}\n{HTML_TEMPLATE}\n{JS_TEMPLATE}\n"
+    raw_html = raw_html.replace("</body>", injection + "</body>", 1)
+    return raw_html
 
 
 def read_gpx(ride_name):
@@ -462,29 +473,6 @@ for ride_id in rides_info.id.unique():
         "elevations_m": [round(e, 1) if e is not None else 0 for e in ele_sampled],
         "stats": ride_stats,
     })
-    # stats_html = "".join(
-    #     [f"<b>{k}</b>: {v}" for k, v in stats.items() if v is not None]
-    # )
-
-    # Create popup with image or iframe
-    encoded = base64.b64encode(open(elev_plot_path, "rb").read()).decode()
-    img_html = f"""
-    <div style="width: 100%; height: 100%;">
-        <img src="data:image/png;base64,{encoded}" style="width: 100%; height: auto;">
-    </div>
-    """
-
-    # Combined HTML
-    full_html = f"""
-    <div style="font-family: Arial; font-size:12px;">
-    <img src="data:image/png;base64,{encoded}" width="700" height="270" style="margin:0; padding:0; display:inline;" />
-    {stats_html}
-    </div>
-    """
-
-    iframe = IFrame(full_html, width=720, height=400)
-    popup = folium.Popup(iframe, max_width=750)
-
     for c in ride_towns:
         town = towns.query(f"town in '{c}'")
         try:
@@ -509,12 +497,18 @@ for ride_id in rides_info.id.unique():
             print(c)
             pass
 
-    # Add polyline with popup
+    # Add polyline — clicking calls swSelectRide() in the UI
+    click_popup = folium.Popup(
+        f'<script>swSelectRide({int(ride_id)})</script>',
+        max_width=1
+    )
     folium.PolyLine(
-        [(lat, lon) for lat, lon, *_ in ride_coords],
-        color="purple",
-        popup=popup,
-        weight=3,
+        [(lat, lon) for lat, lon in ride_coords],
+        color="#ff6b35",
+        weight=4,
+        opacity=0.85,
+        tooltip=f"Ride {ride_id} · {canton_label}",
+        popup=click_popup,
     ).add_to(rides)
 
 
@@ -539,4 +533,8 @@ map1.add_child(stops)
 
 
 map1.add_child(folium.LayerControl())
-map1.save("index.html")
+raw_html = map1._repr_html_()
+final_html = inject_ui(raw_html, ride_data_list)
+with open("index.html", "w", encoding="utf-8") as f:
+    f.write(final_html)
+print("index.html written.")
