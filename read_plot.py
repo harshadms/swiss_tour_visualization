@@ -42,14 +42,7 @@ document.addEventListener('DOMContentLoaded', function() {{
 }});
 </script>"""
 
-    # Override Folium's inline height on the specific map div
-    map_id_match = re.search(r'id="(map_[a-f0-9]+)"', raw_html)
-    map_id_style = ""
-    if map_id_match:
-        map_id = map_id_match.group(1)
-        map_id_style = f"<style>#{map_id} {{ height: calc(100vh - 48px) !important; }}</style>"
-
-    raw_html = raw_html.replace("</head>", CSS_TEMPLATE + map_id_style + "\n</head>", 1)
+    raw_html = raw_html.replace("</head>", CSS_TEMPLATE + "\n</head>", 1)
     injection = f"\n{rides_script}\n{HTML_TEMPLATE}\n{JS_TEMPLATE}\n{map_fix}\n"
     raw_html = raw_html.replace("</body>", injection + "</body>", 1)
     return raw_html

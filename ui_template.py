@@ -26,15 +26,8 @@ CSS_TEMPLATE = """
   --overlay-bg: rgba(245,240,232,0.92);
 }
 
-/* ── Reset map to fill viewport ────────────────────────── */
-html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; }
-.folium-map {
-  position:fixed !important;
-  top:0 !important; left:0 !important;
-  width:100% !important;
-  height:calc(100vh - 48px) !important;
-  z-index:1;
-}
+/* ── Leave Folium's map layout completely alone ─────────── */
+/* Only the overlay elements are positioned by us */
 
 /* ── Title badge (top-left) ─────────────────────────────── */
 #sw-title {
