@@ -1,4 +1,5 @@
 import json
+import os
 import time
 import warnings
 from geopy.distance import geodesic
@@ -41,7 +42,7 @@ def inject_ui(raw_html: str, rides_data: list) -> str:
       var tt = layer.getTooltip();
       if (tt) {{
         var content = tt.getContent ? tt.getContent() : tt._content;
-        var m = content && content.match(/^ride-id-(\\d+)$/);
+        var m = content && content.match(/ride-id-(\\d+)/);
         if (m) {{
           var rid = parseInt(m[1]);
           layer.setStyle && layer.setStyle({{color: '#ff6b35', weight: 4, opacity: 0.85}});
@@ -378,7 +379,7 @@ shapefile = gpd.read_file(
 shapefile.to_crs(crs=4326, inplace=True)
 
 # latlon = shapefile.query("NAME == 'Schweiz'").geometry.apply(lambda x: listPoints(x)).values.tolist()
-completed_cantons = ["Zürich", "Zug", "Aargau", "Graubünden"]
+completed_cantons = ["Zürich", "Zug", "Aargau", "Graubünden", "Schwyz", "Vaud","Bern"]
 cantons = folium.FeatureGroup(name="Cantons")
 completed = folium.FeatureGroup(name="Completed")
 districts = folium.FeatureGroup(name="Districts")
@@ -448,9 +449,10 @@ for row in range(len(shapefile)):
             plot_polyline(kanton_obj.geometry, color, cantons, fillColor, kanton_name)
             continue
 
+        completed_bezirke = set(rides_info.bezirk.dropna().unique())
         for i in range(len(dist_obj.geometry)):
             dist_name = dist_obj.iloc[i].NAME
-            if dist_name not in towns.bezirk.values:
+            if dist_name not in completed_bezirke:
                 print(f"Bezirke not completed: {dist_name}")
                 color = kanton_incomplete_border
                 fillColor = kanton_incomplete_fill
@@ -474,6 +476,9 @@ for ride_id in rides_info.id.unique():
     ride = rides_info.query(f"id == {ride_id}")
     print(ride_id)
     ride_name = f"./rides/ride{ride_id}.xml"
+    if not os.path.exists(ride_name):
+        print(f"  skipping ride {ride_id}: no GPX file")
+        continue
     ride_coords, ride_ele, ride_timestamps = read_gpx(ride_name)
     ride_towns = ride.towns.values
 
@@ -484,6 +489,8 @@ for ride_id in rides_info.id.unique():
     # Build structured data for UI injection
     ride_towns_list = list(ride.towns.values)
     ride_canton = rides_info.query(f"id == {ride_id}").bezirk.values[0]
+    if not isinstance(ride_canton, str) or not ride_canton:
+        ride_canton = ''
     canton_label = next(
         (c for c in completed_cantons if c in ride_canton or ride_canton in c),
         ride_canton
@@ -497,6 +504,28 @@ for ride_id in rides_info.id.unique():
         d = geodesic(coords_sampled[i - 1], coords_sampled[i]).km
         distances_sampled.append(distances_sampled[-1] + d)
 
+    # Full cumulative distance array (unsampled) for town snapping
+    full_cum = [0.0]
+    for i in range(1, len(ride_coords)):
+        full_cum.append(full_cum[-1] + geodesic(ride_coords[i - 1], ride_coords[i]).km)
+
+    # Compute the distance along the route for each town
+    town_distances = []
+    for town_name in ride_towns_list:
+        town_row = towns.query(f"town == '{town_name}'")
+        if len(town_row) == 0:
+            # Fallback: distribute evenly
+            idx = ride_towns_list.index(town_name)
+            frac = idx / max(len(ride_towns_list) - 1, 1)
+            town_distances.append(round(frac * full_cum[-1], 2))
+            continue
+        t_lat = town_row.lat.values[0]
+        t_lon = town_row.lon.values[0]
+        # Find nearest GPS point
+        best_idx = min(range(len(ride_coords)),
+                       key=lambda i: geodesic(ride_coords[i], (t_lat, t_lon)).km)
+        town_distances.append(round(full_cum[best_idx], 2))
+
     ride_stats = _compute_stats(ride_coords, ride_ele, ride_timestamps)
 
     ride_data_list.append({
@@ -504,8 +533,10 @@ for ride_id in rides_info.id.unique():
         "label": f"Ride {ride_id}",
         "canton": canton_label,
         "towns": ride_towns_list,
+        "town_distances_km": town_distances,
         "distances_km": [round(d, 2) for d in distances_sampled],
         "elevations_m": [round(e, 1) if e is not None else 0 for e in ele_sampled],
+        "coords": [[round(c[0], 5), round(c[1], 5)] for c in coords_sampled],
         "stats": ride_stats,
     })
     for c in ride_towns:
