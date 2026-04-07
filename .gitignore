@@ -1,5 +1,6 @@
 *.zip
-*pycache
+**/__pycache__/*
 **/venv/*
 **/.claude/*
 **/.superpowers/*
+**/shapefiles/*

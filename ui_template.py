@@ -86,11 +86,11 @@ CSS_TEMPLATE = """
   overflow:hidden;
 }
 #sw-drawer.collapsed { height:0; }
-#sw-drawer.expanded  { height:280px; }
+#sw-drawer.expanded  { height:320px; }
 
 /* drawer content: column layout — handle / stats / chart */
 #sw-drawer-content {
-  height:280px;
+  height:320px;
   display:flex; flex-direction:column;
   overflow:hidden;
 }
@@ -131,39 +131,66 @@ CSS_TEMPLATE = """
 /* ── Elevation chart area ── */
 #sw-chart-wrap {
   flex:1; position:relative; min-height:0;
-  padding:4px 16px 8px 44px; /* left pad for Y-axis labels, bottom for baseline */
+  display:flex; flex-direction:column;
+  padding:0 16px 0 0;
+}
+/* Town label row above the SVG */
+#sw-wp-row {
+  position:relative; height:22px; flex-shrink:0;
+  margin-left:48px; /* align with chart */
+}
+.sw-wp-label {
+  position:absolute; transform:translateX(-50%);
+  font-size:10px; color:var(--text2);
+  white-space:nowrap; bottom:2px;
+  pointer-events:none;
+}
+/* SVG + Y-axis row */
+#sw-chart-inner {
+  flex:1; position:relative; min-height:0;
+  margin-left:48px;
 }
 #sw-elev-svg {
   width:100%; height:100%;
-  display:block; overflow:visible;
+  display:block;
 }
-.sw-elev-line { fill:none; stroke:var(--accent); stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
-.sw-elev-fill { fill:var(--accent); opacity:.15; stroke:none; }
+.sw-elev-line { fill:none; stroke:var(--accent); stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+.sw-elev-fill { fill:var(--accent); opacity:.18; stroke:none; }
 
-/* Y-axis labels */
+/* Y-axis labels — DOM, left of #sw-chart-inner */
 .sw-y-label {
-  position:absolute; left:0; width:40px;
+  position:absolute; right:calc(100% + 4px); width:44px;
   font-size:11px; color:var(--text2);
   text-align:right; transform:translateY(-50%);
   pointer-events:none; line-height:1;
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 }
 /* Y-axis grid lines rendered in SVG via JS */
-.sw-grid-line { stroke:var(--border); stroke-width:0.5; stroke-dasharray:3,3; }
+.sw-grid-line { stroke:var(--border); stroke-width:0.5; stroke-dasharray:4,4; }
 
-/* Town waypoint markers — now fully SVG, no DOM divs needed */
-.sw-wp-line  { stroke:var(--border); stroke-width:0.8; stroke-dasharray:2,2; }
-.sw-wp-dot   { fill:var(--accent); stroke:var(--bg); stroke-width:1.5; }
-.sw-wp-label { fill:var(--text2); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }
+/* Town waypoint markers in SVG */
+.sw-wp-line { stroke:var(--border); stroke-width:1; stroke-dasharray:3,3; }
+.sw-wp-dot  { fill:var(--accent); stroke:var(--bg); stroke-width:1.5; }
+
+/* X-axis distance label row below SVG */
+#sw-x-row {
+  position:relative; height:18px; flex-shrink:0;
+  margin-left:48px;
+}
+.sw-x-label {
+  position:absolute; transform:translateX(-50%);
+  font-size:10px; color:var(--text2);
+  top:2px; pointer-events:none;
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+}
 
 /* Hover cursor line on chart */
 #sw-hover-line {
-  stroke:var(--text1); stroke-width:1; stroke-dasharray:3,2;
+  stroke:var(--text2); stroke-width:1; stroke-dasharray:3,2;
   pointer-events:none; opacity:0;
 }
 /* Map hover dot */
-#sw-map-dot {
-  pointer-events:none;
-}
+#sw-map-dot { pointer-events:none; }
 </style>
 """
 
@@ -209,14 +236,20 @@ HTML_TEMPLATE = """
 
     <!-- elevation chart -->
     <div id="sw-chart-wrap">
-      <svg id="sw-elev-svg" viewBox="0 0 800 100" preserveAspectRatio="none">
-        <g id="sw-grid-g"></g>
-        <polygon class="sw-elev-fill" id="sw-elev-fill" points=""/>
-        <polyline class="sw-elev-line" id="sw-elev-line" points=""/>
-        <g id="sw-waypoint-lines-g"></g>
-        <line id="sw-hover-line" x1="0" y1="0" x2="0" y2="100"/>
-      </svg>
-      <!-- Y-axis labels and waypoint markers injected by JS into #sw-chart-wrap -->
+      <!-- town name labels above chart -->
+      <div id="sw-wp-row"></div>
+      <!-- SVG chart with Y-axis labels -->
+      <div id="sw-chart-inner">
+        <svg id="sw-elev-svg" viewBox="0 0 800 100" preserveAspectRatio="none">
+          <g id="sw-grid-g"></g>
+          <polygon class="sw-elev-fill" id="sw-elev-fill" points=""/>
+          <polyline class="sw-elev-line" id="sw-elev-line" points=""/>
+          <g id="sw-waypoint-lines-g"></g>
+          <line id="sw-hover-line" x1="0" y1="0" x2="0" y2="100"/>
+        </svg>
+      </div>
+      <!-- X-axis distance labels below chart -->
+      <div id="sw-x-row"></div>
     </div>
 
   </div>
@@ -361,51 +394,45 @@ JS_TEMPLATE = """
     var eles  = ride.elevations_m;
     if (!dists || !dists.length) return;
 
-    // SVG coordinate space — use actual pixel width so text doesn't stretch
-    // Top pad: 22 (waypoint labels + dot), bottom pad: 18 (baseline gap like Komoot)
+    // SVG coordinate space — use actual px width so there's no horizontal scaling.
+    // All text is DOM (not SVG) so fonts always match the UI.
     var svg = document.getElementById('sw-elev-svg');
     var W = Math.round(svg.getBoundingClientRect().width) || 800;
-    var H = 120;
-    var PAD_TOP = 22, PAD_BOT = 18;
-    var chartH = H - PAD_TOP - PAD_BOT; // usable height for elevation
+    // SVG height: no internal padding — DOM rows above/below handle labels
+    var H = 100;
+    var PAD_BOT = 6; // small gap at baseline so line doesn't clip at edge
 
     var minE = Math.min.apply(null, eles);
     var maxE = Math.max.apply(null, eles);
     var rangeE = maxE - minE || 1;
     var maxD = dists[dists.length - 1] || 1;
 
-    // Helper: elevation value → SVG y
+    // elevation value → SVG y (0 = top of SVG)
     function eToY(e) {
-      return PAD_TOP + chartH - ((e - minE) / rangeE) * chartH;
+      return (H - PAD_BOT) - ((e - minE) / rangeE) * (H - PAD_BOT);
     }
 
     // ── Elevation line + fill ──
     var pts = [];
     for (var i = 0; i < dists.length; i++) {
-      var x = (dists[i] / maxD) * W;
-      var y = eToY(eles[i]);
-      pts.push(x.toFixed(1) + ',' + y.toFixed(1));
+      pts.push(((dists[i] / maxD) * W).toFixed(1) + ',' + eToY(eles[i]).toFixed(1));
     }
     var lineStr = pts.join(' ');
-    // Fill closes down to baseline (PAD_BOT above bottom), not the very bottom edge
     var baseY = H - PAD_BOT;
     var fillStr = lineStr + ' ' + W + ',' + baseY + ' 0,' + baseY;
     document.getElementById('sw-elev-line').setAttribute('points', lineStr);
     document.getElementById('sw-elev-fill').setAttribute('points', fillStr);
-
-    // Update SVG viewBox to match new H
-    document.getElementById('sw-elev-svg').setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
     document.getElementById('sw-hover-line').setAttribute('y2', H);
 
-    // ── Y-axis grid lines + labels ──
-    var wrap = document.getElementById('sw-chart-wrap');
-    var oldLabels = wrap.querySelectorAll('.sw-y-label');
-    for (var j = 0; j < oldLabels.length; j++) oldLabels[j].parentNode.removeChild(oldLabels[j]);
+    // ── Y-axis: DOM labels on #sw-chart-inner, SVG grid lines ──
+    var inner = document.getElementById('sw-chart-inner');
+    var oldY = inner.querySelectorAll('.sw-y-label');
+    for (var j = 0; j < oldY.length; j++) oldY[j].parentNode.removeChild(oldY[j]);
 
     var gridG = document.getElementById('sw-grid-g');
     while (gridG.firstChild) gridG.removeChild(gridG.firstChild);
 
-    // Pick ~4 nice round elevation ticks
     var rawStep = rangeE / 4;
     var magnitude = Math.pow(10, Math.floor(Math.log(rawStep) / Math.LN10));
     var niceStep = Math.ceil(rawStep / magnitude) * magnitude;
@@ -413,25 +440,23 @@ JS_TEMPLATE = """
 
     for (var e = tickStart; e <= maxE; e += niceStep) {
       var yPx = eToY(e);
-
-      // Grid line in SVG
+      // SVG grid line
       var gline = document.createElementNS('http://www.w3.org/2000/svg', 'line');
       gline.setAttribute('class', 'sw-grid-line');
       gline.setAttribute('x1', '0'); gline.setAttribute('x2', W);
       gline.setAttribute('y1', yPx.toFixed(1)); gline.setAttribute('y2', yPx.toFixed(1));
       gridG.appendChild(gline);
-
-      // Label pinned to left of chart-wrap using %
-      // Map SVG y → % of chart-wrap clientHeight
-      // We can't know exact px from JS easily so use a ratio: yPx/H as fraction of wrap height
+      // DOM label — positioned relative to #sw-chart-inner height
       var lbl = document.createElement('div');
       lbl.className = 'sw-y-label';
-      lbl.textContent = Math.round(e) + 'm';
+      lbl.textContent = Math.round(e) + ' m';
       lbl.style.top = ((yPx / H) * 100).toFixed(1) + '%';
-      wrap.appendChild(lbl);
+      inner.appendChild(lbl);
     }
 
-    // ── Town waypoint markers (fully in SVG so they scale) ──
+    // ── Town waypoints: DOM labels in #sw-wp-row, SVG lines+dots ──
+    var wpRow = document.getElementById('sw-wp-row');
+    wpRow.innerHTML = '';
     var wpG = document.getElementById('sw-waypoint-lines-g');
     while (wpG.firstChild) wpG.removeChild(wpG.firstChild);
 
@@ -440,56 +465,58 @@ JS_TEMPLATE = """
 
     if (townDists && townDists.length === towns.length) {
       for (var t = 0; t < towns.length; t++) {
-        var frac   = townDists[t] / maxD;
-        var wpX    = frac * W;
+        var frac = townDists[t] / maxD;
+        var wpX  = frac * W;
 
-        // Find the elevation at this town to place the dot on the line
-        // Binary search in dists for nearest index
+        // Nearest elevation sample
         var lo = 0, hi = dists.length - 1;
         while (lo < hi) { var mid = (lo + hi) >> 1; if (dists[mid] < townDists[t]) lo = mid + 1; else hi = mid; }
         var dotY = eToY(eles[lo]);
 
-        // Dashed vertical line from top pad down to baseline
+        // SVG: dashed vertical line
         var vline = document.createElementNS('http://www.w3.org/2000/svg', 'line');
         vline.setAttribute('class', 'sw-wp-line');
         vline.setAttribute('x1', wpX.toFixed(1)); vline.setAttribute('x2', wpX.toFixed(1));
-        vline.setAttribute('y1', PAD_TOP.toFixed(1)); vline.setAttribute('y2', (H - PAD_BOT).toFixed(1));
+        vline.setAttribute('y1', '0'); vline.setAttribute('y2', baseY.toFixed(1));
         wpG.appendChild(vline);
 
-        // Dot on the elevation line
+        // SVG: dot on elevation line
         var dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
         dot.setAttribute('class', 'sw-wp-dot');
         dot.setAttribute('cx', wpX.toFixed(1));
         dot.setAttribute('cy', dotY.toFixed(1));
-        dot.setAttribute('r', '4');
+        dot.setAttribute('r', '3.5');
         wpG.appendChild(dot);
 
-        // Town name label at top, inside PAD_TOP area
-        // Use SVG text with a small background rect for legibility
-        var labelY = PAD_TOP - 6; // above the chart area
-
-        var rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        var approxW = towns[t].length * 5.5 + 6;
-        var rectX = Math.min(Math.max(wpX - approxW / 2, 2), W - approxW - 2);
-        rect.setAttribute('x', rectX.toFixed(1));
-        rect.setAttribute('y', (labelY - 9).toFixed(1));
-        rect.setAttribute('width', approxW.toFixed(1));
-        rect.setAttribute('height', '11');
-        rect.setAttribute('rx', '2');
-        rect.setAttribute('fill', 'var(--bg2)');
-        rect.setAttribute('opacity', '0.85');
-        wpG.appendChild(rect);
-
-        var txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        txt.setAttribute('class', 'sw-wp-label');
-        txt.setAttribute('x', (rectX + approxW / 2).toFixed(1));
-        txt.setAttribute('y', (labelY).toFixed(1));
-        txt.setAttribute('text-anchor', 'middle');
-        txt.setAttribute('font-size', '8');
-        txt.textContent = towns[t];
-        wpG.appendChild(txt);
+        // DOM: town name label in wp-row, % left relative to chart width
+        var tlbl = document.createElement('div');
+        tlbl.className = 'sw-wp-label';
+        tlbl.textContent = towns[t];
+        tlbl.style.left = ((wpX / W) * 100).toFixed(2) + '%';
+        wpRow.appendChild(tlbl);
       }
     }
+
+    // ── X-axis: distance labels in #sw-x-row ──
+    var xRow = document.getElementById('sw-x-row');
+    xRow.innerHTML = '';
+    // Pick ~5 nice round distance ticks
+    var xStep = Math.ceil(maxD / 5 / 10) * 10;
+    if (xStep < 5) xStep = 5;
+    for (var d = 0; d <= maxD; d += xStep) {
+      var xPct = (d / maxD * 100).toFixed(2);
+      var xlbl = document.createElement('div');
+      xlbl.className = 'sw-x-label';
+      xlbl.textContent = d === 0 ? '0' : d + ' km';
+      xlbl.style.left = xPct + '%';
+      xRow.appendChild(xlbl);
+    }
+    // Always show the end distance
+    var endLbl = document.createElement('div');
+    endLbl.className = 'sw-x-label';
+    endLbl.textContent = maxD.toFixed(1) + ' km';
+    endLbl.style.left = '100%';
+    xRow.appendChild(endLbl);
   }
 
   // ── Elevation hover: cursor line + map dot ────────────────
